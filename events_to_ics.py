@@ -26,7 +26,11 @@ import sys
 import uuid
 from datetime import datetime, date, timedelta
 from pathlib import Path
-from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+
+try:
+    from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+except ImportError:
+    from backports.zoneinfo import ZoneInfo, ZoneInfoNotFoundError  # type: ignore[import]
 
 
 # ── ICS helpers ──────────────────────────────────────────────────────────────
@@ -74,12 +78,20 @@ def parse_date(value) -> date:
     """Parse a date from various string formats."""
     if isinstance(value, (date, datetime)):
         return value.date() if isinstance(value, datetime) else value
+    value_str = str(value).strip()
+    possible_dates = set()
     for fmt in ("%Y-%m-%d", "%d/%m/%Y", "%m/%d/%Y", "%d-%m-%Y"):
         try:
-            return datetime.strptime(str(value).strip(), fmt).date()
+            parsed = datetime.strptime(value_str, fmt).date()
+            possible_dates.add(parsed)
         except ValueError:
             continue
-    raise ValueError(f"Cannot parse date: {value!r}")
+    if len(possible_dates) == 1:
+        return possible_dates.pop()
+    elif len(possible_dates) > 1:
+        raise ValueError(f"Ambiguous date format: {value!r} could be parsed as {sorted(possible_dates)}")
+    else:
+        raise ValueError(f"Cannot parse date: {value!r}")
 
 
 def parse_time(value):
@@ -168,7 +180,10 @@ def load_file(path: Path) -> list[dict]:
     if suffix in (".xlsx", ".xlsm", ".xls"):
         df = pd.read_excel(path, dtype=str)
     elif suffix == ".csv":
-        df = pd.read_csv(path, dtype=str, encoding='cp1252')
+        try:
+            df = pd.read_csv(path, dtype=str, encoding='utf-8')
+        except UnicodeDecodeError:
+            df = pd.read_csv(path, dtype=str, encoding='cp1252')
     else:
         sys.exit(f"Unsupported file type: {suffix}. Use .xlsx or .csv")
     df.columns = df.columns.str.strip().str.lower()

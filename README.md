@@ -22,7 +22,21 @@ A Python script to convert event data from CSV or Excel files into Google Calend
 ### Install Dependencies
 
 ```bash
+pip install -r requirements.txt
+```
+
+For development (testing):
+
+```bash
+pip install -r dev-requirements.txt
+```
+
+Or manually:
+
+```bash
 pip install pandas openpyxl
+# For Python < 3.9, also install:
+pip install backports.zoneinfo
 ```
 
 Or create a virtual environment:
@@ -142,7 +156,7 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ### Common Issues
 
-- **UnicodeDecodeError**: Your CSV file may not be UTF-8 encoded. The script now uses cp1252 encoding for CSV files. If you encounter issues, try converting your CSV to UTF-8.
+- **UnicodeDecodeError**: Your CSV file may not be UTF-8 or cp1252 encoded. The script tries UTF-8 first, then falls back to cp1252. If you encounter issues, try converting your CSV to UTF-8.
 - **Date parsing errors**: Ensure dates are in supported formats. The script tries multiple formats automatically.
 - **Timezone errors**: Use valid IANA timezone names (e.g., 'America/New_York', not 'EST').
 
