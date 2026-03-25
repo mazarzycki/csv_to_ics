@@ -125,7 +125,7 @@ def build_vevent(row: dict, default_tz: ZoneInfo) -> list[str]:
     start_time = parse_time(cols.get("start_time") or cols.get("start time") or "")
     end_time = parse_time(cols.get("end_time") or cols.get("end time") or "")
 
-    now_stamp = datetime.utcnow().strftime("%Y%m%dT%H%M%SZ")
+    now_stamp = datetime.now(ZoneInfo("UTC")).strftime("%Y%m%dT%H%M%SZ")
     uid = make_uid()
 
     lines = ["BEGIN:VEVENT", f"UID:{uid}", f"DTSTAMP:{now_stamp}"]
