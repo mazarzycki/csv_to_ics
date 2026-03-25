@@ -1,0 +1,4 @@
+title,start_date,start_time,end_date,end_time,description,location,timezone
+Test Event,2024-01-01,10:00,2024-01-01,11:00,Test description,Test location,
+All Day Event,2024-01-02,,,All day description,,
+Event with Timezone,2024-01-03,14:00,2024-01-03,15:00,Timezone test,Office,Europe/London
