@@ -5,9 +5,11 @@ A Python script to convert event data from CSV or Excel files into Google Calend
 ## Features
 
 - **Multiple Input Formats**: Supports both CSV and Excel (.xlsx, .xlsm, .xls) files
-- **Flexible Date/Time Parsing**: Handles various date and time formats automatically
+- **Flexible Date/Time Parsing**: Handles various date and time formats with ambiguity detection
+- **Explicit Date Format**: Use `--date-format` to eliminate ambiguity (e.g. `DMY`, `MDY`)
 - **Timezone Support**: Specify default timezone with `--tz` flag, or per-event with a timezone column
 - **All-Day Events**: Omit start/end times for all-day events
+- **Smart Encoding**: Tries UTF-8 first, falls back to cp1252; override with `--encoding`
 - **Error Handling**: Skips invalid rows and reports errors
 - **RFC 5545 Compliant**: Generates properly formatted ICS files
 - **Command-Line Interface**: Simple CLI with options for input, output, and timezone
@@ -16,7 +18,7 @@ A Python script to convert event data from CSV or Excel files into Google Calend
 
 ### Prerequisites
 
-- Python 3.6 or higher
+- Python 3.9 or higher
 - Required Python packages: `pandas`, `openpyxl` (for Excel support)
 
 ### Install Dependencies
@@ -29,14 +31,6 @@ For development (testing):
 
 ```bash
 pip install -r dev-requirements.txt
-```
-
-Or manually:
-
-```bash
-pip install pandas openpyxl
-# For Python < 3.9, also install:
-pip install backports.zoneinfo
 ```
 
 Or create a virtual environment:
@@ -61,18 +55,41 @@ python events_to_ics.py events.csv -o calendar.ics
 python events_to_ics.py events.xlsx -o calendar.ics --tz Europe/Madrid
 ```
 
+### With Explicit Date Format
+
+```bash
+# Dates are DD/MM/YYYY
+python events_to_ics.py events.csv --date-format DMY
+
+# Dates are MM/DD/YYYY
+python events_to_ics.py events.csv --date-format MDY
+
+# Custom strftime pattern
+python events_to_ics.py events.csv --date-format "%d-%m-%Y"
+```
+
+### With Explicit Encoding
+
+```bash
+python events_to_ics.py events.csv --encoding latin-1
+```
+
 ### Command-Line Options
 
-- `input`: Path to the input CSV or Excel file (required)
-- `-o, --output`: Output ICS file path (default: calendar.ics)
-- `--tz`: Default timezone (default: UTC). Use IANA timezone names like 'America/New_York' or 'Europe/London'
+| Option | Default | Description |
+|--------|---------|-------------|
+| `input` | *(required)* | Path to the input CSV or Excel file |
+| `-o, --output` | `calendar.ics` | Output ICS file path |
+| `--tz` | `UTC` | Default timezone (IANA name, e.g. `Europe/Madrid`) |
+| `--date-format` | *(auto-detect)* | Date format: `DMY`, `MDY`, `YMD`, or a strftime pattern |
+| `--encoding` | *(auto: UTF-8 → cp1252)* | CSV encoding (e.g. `utf-8`, `latin-1`, `cp1252`) |
 
 ## Input File Format
 
 ### Required Columns (case-insensitive)
 
 - **title** (or **name**, **subject**): Event name/title
-- **start_date**: Start date in formats like YYYY-MM-DD, DD/MM/YYYY, MM/DD/YYYY, DD-MM-YYYY
+- **start_date**: Start date (YYYY-MM-DD, DD/MM/YYYY, MM/DD/YYYY, or DD-MM-YYYY — use `--date-format` to resolve ambiguity)
 - **start_time**: Start time in formats like HH:MM, HH:MM:SS, HH:MM AM/PM (optional for all-day events)
 - **end_date**: End date (optional, defaults to start_date)
 - **end_time**: End time (optional for all-day events)
@@ -117,10 +134,9 @@ python events_to_ics.py events.xlsx -o calendar.ics --tz Europe/Paris
 
 ## Requirements
 
-- Python 3.6+
+- Python 3.9+
 - pandas
 - openpyxl (for Excel files)
-- zoneinfo (built-in for Python 3.9+, install backports.zoneinfo for older versions)
 
 ## Contributing
 
@@ -140,6 +156,8 @@ Contributions are welcome! Please follow these steps:
 git clone https://github.com/yourusername/csv-to-ics.git
 cd csv-to-ics
 pip install -r requirements.txt
+pip install -r dev-requirements.txt
+pytest
 ```
 
 ## License
@@ -156,13 +174,13 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ### Common Issues
 
-- **UnicodeDecodeError**: Your CSV file may not be UTF-8 or cp1252 encoded. The script tries UTF-8 first, then falls back to cp1252. If you encounter issues, try converting your CSV to UTF-8.
-- **Date parsing errors**: Ensure dates are in supported formats. The script tries multiple formats automatically.
-- **Timezone errors**: Use valid IANA timezone names (e.g., 'America/New_York', not 'EST').
+- **UnicodeDecodeError**: The script tries UTF-8 first, then falls back to cp1252. If neither works, specify the correct encoding with `--encoding` (e.g. `--encoding latin-1`).
+- **Ambiguous date errors**: Dates like `01/02/2024` are ambiguous (Jan 2 or Feb 1?). Use `--date-format DMY` or `--date-format MDY` to resolve.
+- **Timezone errors**: Use valid IANA timezone names (e.g. `America/New_York`, not `EST`).
 
 ### Error Messages
 
-The script will skip invalid rows and print error messages to stderr. Check the output for any issues.
+The script skips invalid rows and prints errors to stderr. Check the output for details.
 
 ## Changelog
 

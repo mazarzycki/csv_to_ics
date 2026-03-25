@@ -26,11 +26,13 @@ import sys
 import uuid
 from datetime import datetime, date, timedelta
 from pathlib import Path
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-try:
-    from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
-except ImportError:
-    from backports.zoneinfo import ZoneInfo, ZoneInfoNotFoundError  # type: ignore[import]
+DATE_FORMAT_SHORTCUTS = {
+    "DMY": "%d/%m/%Y",
+    "MDY": "%m/%d/%Y",
+    "YMD": "%Y-%m-%d",
+}
 
 
 # ── ICS helpers ──────────────────────────────────────────────────────────────
@@ -74,11 +76,27 @@ def make_uid() -> str:
 # ── Row parsing ───────────────────────────────────────────────────────────────
 
 
-def parse_date(value) -> date:
-    """Parse a date from various string formats."""
+def parse_date(value, date_format=None) -> date:
+    """Parse a date from various string formats.
+
+    If *date_format* is given (a strftime pattern or one of the shortcuts
+    DMY / MDY / YMD), only that format is attempted – eliminating ambiguity.
+    Otherwise all common formats are tried and an error is raised when a
+    value could be interpreted in more than one way.
+    """
     if isinstance(value, (date, datetime)):
         return value.date() if isinstance(value, datetime) else value
     value_str = str(value).strip()
+
+    if date_format:
+        fmt = DATE_FORMAT_SHORTCUTS.get(date_format.upper(), date_format)
+        try:
+            return datetime.strptime(value_str, fmt).date()
+        except ValueError:
+            raise ValueError(
+                f"Cannot parse date {value!r} with format {fmt!r}"
+            )
+
     possible_dates = set()
     for fmt in ("%Y-%m-%d", "%d/%m/%Y", "%m/%d/%Y", "%d-%m-%Y"):
         try:
@@ -89,7 +107,10 @@ def parse_date(value) -> date:
     if len(possible_dates) == 1:
         return possible_dates.pop()
     elif len(possible_dates) > 1:
-        raise ValueError(f"Ambiguous date format: {value!r} could be parsed as {sorted(possible_dates)}")
+        raise ValueError(
+            f"Ambiguous date {value!r} — matches multiple formats. "
+            f"Use --date-format to specify (e.g. --date-format DMY)"
+        )
     else:
         raise ValueError(f"Cannot parse date: {value!r}")
 
@@ -107,7 +128,7 @@ def parse_time(value):
     raise ValueError(f"Cannot parse time: {value!r}")
 
 
-def build_vevent(row: dict, default_tz: ZoneInfo) -> list[str]:
+def build_vevent(row: dict, default_tz: ZoneInfo, date_format=None) -> list[str]:
     """Build the VEVENT lines for an ICS event from a row dictionary."""
     cols = {k.lower().strip(): v for k, v in row.items()}
 
@@ -126,10 +147,10 @@ def build_vevent(row: dict, default_tz: ZoneInfo) -> list[str]:
     else:
         tz = default_tz
 
-    start_date = parse_date(cols["start_date"])
+    start_date = parse_date(cols["start_date"], date_format)
     end_date_raw = cols.get("end_date") or cols.get("end date") or ""
     end_date = (
-        parse_date(end_date_raw)
+        parse_date(end_date_raw, date_format)
         if str(end_date_raw).strip() not in ("", "nan", "None")
         else start_date
     )
@@ -143,12 +164,16 @@ def build_vevent(row: dict, default_tz: ZoneInfo) -> list[str]:
     lines = ["BEGIN:VEVENT", f"UID:{uid}", f"DTSTAMP:{now_stamp}"]
 
     if start_time:
+        s_hour, s_min = start_time
         dt_start = datetime(
-            start_date.year, start_date.month, start_date.day, *start_time, tzinfo=tz
+            start_date.year, start_date.month, start_date.day,
+            s_hour, s_min, tzinfo=tz,
         )
         if end_time:
+            e_hour, e_min = end_time
             dt_end = datetime(
-                end_date.year, end_date.month, end_date.day, *end_time, tzinfo=tz
+                end_date.year, end_date.month, end_date.day,
+                e_hour, e_min, tzinfo=tz,
             )
         else:
             dt_end = dt_start + timedelta(hours=1)  # default 1-hour duration
@@ -174,16 +199,19 @@ def build_vevent(row: dict, default_tz: ZoneInfo) -> list[str]:
 # ── Main ──────────────────────────────────────────────────────────────────────
 
 
-def load_file(path: Path) -> list[dict]:
+def load_file(path: Path, encoding=None) -> list[dict]:
     """Load event data from a CSV or Excel file into a list of dictionaries."""
     suffix = path.suffix.lower()
     if suffix in (".xlsx", ".xlsm", ".xls"):
         df = pd.read_excel(path, dtype=str)
     elif suffix == ".csv":
-        try:
-            df = pd.read_csv(path, dtype=str, encoding='utf-8')
-        except UnicodeDecodeError:
-            df = pd.read_csv(path, dtype=str, encoding='cp1252')
+        if encoding:
+            df = pd.read_csv(path, dtype=str, encoding=encoding)
+        else:
+            try:
+                df = pd.read_csv(path, dtype=str, encoding="utf-8")
+            except UnicodeDecodeError:
+                df = pd.read_csv(path, dtype=str, encoding="cp1252")
     else:
         sys.exit(f"Unsupported file type: {suffix}. Use .xlsx or .csv")
     df.columns = df.columns.str.strip().str.lower()
@@ -191,7 +219,7 @@ def load_file(path: Path) -> list[dict]:
     return df.to_dict(orient="records")
 
 
-def generate_ics(rows: list[dict], default_tz: ZoneInfo) -> str:
+def generate_ics(rows: list[dict], default_tz: ZoneInfo, date_format=None) -> str:
     """Generate the complete ICS calendar content from event rows."""
     lines = [
         "BEGIN:VCALENDAR",
@@ -203,7 +231,7 @@ def generate_ics(rows: list[dict], default_tz: ZoneInfo) -> str:
     errors = 0
     for i, row in enumerate(rows, start=2):  # row 2 = first data row
         try:
-            lines.extend(build_vevent(row, default_tz))
+            lines.extend(build_vevent(row, default_tz, date_format))
         except Exception as e:
             print(f"  ✗ Row {i} skipped: {e}", file=sys.stderr)
             errors += 1
@@ -231,6 +259,25 @@ def main():
         default="UTC",
         help="Default timezone, e.g. Europe/Madrid (default: UTC)",
     )
+    parser.add_argument(
+        "--date-format",
+        default=None,
+        metavar="FMT",
+        help=(
+            "Explicit date format to avoid ambiguity. "
+            "Shortcuts: DMY (DD/MM/YYYY), MDY (MM/DD/YYYY), YMD (YYYY-MM-DD). "
+            "Or any strftime pattern like '%%d/%%m/%%Y'."
+        ),
+    )
+    parser.add_argument(
+        "--encoding",
+        default=None,
+        metavar="CODEC",
+        help=(
+            "CSV file encoding (e.g. utf-8, cp1252, latin-1). "
+            "Default: try UTF-8, fall back to cp1252."
+        ),
+    )
     args = parser.parse_args()
 
     try:
@@ -243,11 +290,11 @@ def main():
         sys.exit(f"File not found: {input_path}")
 
     print(f"📂 Reading {input_path} ...")
-    rows = load_file(input_path)
+    rows = load_file(input_path, encoding=args.encoding)
     print(f"   {len(rows)} event rows found.")
 
     print(f"🗓  Generating ICS (timezone: {args.tz}) ...")
-    ics_content = generate_ics(rows, tz)
+    ics_content = generate_ics(rows, tz, date_format=args.date_format)
 
     output_path = Path(args.output)
     output_path.write_text(ics_content, encoding="utf-8")
